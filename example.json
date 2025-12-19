@@ -1,0 +1,6 @@
+{
+  "jsonrpc": "custom",
+  "method": "add",
+  "params": [5, 3],
+  "id": 1
+}

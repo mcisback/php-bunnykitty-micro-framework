@@ -1,0 +1,30 @@
+{
+  "name": "billyballo/backend",
+  "type": "project",
+  "autoload": {
+    "psr-4": {
+      "Marking\\BunnyKitty\\": "framework/",
+      "App\\": "app/"
+    },
+    "files": [
+      "framework/Handlers/functions.php",
+      "framework/Helpers/functions.php",
+      "framework/Middlewares/functions.php",
+      "framework/Database/MongoDB/functions.php"
+    ]
+  },
+  "authors": [
+    {
+      "name": "Mark Caggiano"
+    }
+  ],
+  "require": {
+    "vlucas/phpdotenv": "^5.6",
+    "symfony/http-foundation": "^7.4",
+    "symfony/string": "^7.4",
+    "yosymfony/toml": "^1.0",
+    "league/config": "^1.2",
+    "symfony/filesystem": "^7.4",
+    "mongodb/mongodb": "^2.1"
+  }
+}

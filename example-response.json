@@ -1,0 +1,7 @@
+{
+  "jsonrpc": "custom",
+  "result": {
+    "sum": 7
+  },
+  "id": 1
+}

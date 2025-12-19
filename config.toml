@@ -1,0 +1,11 @@
+[routes.config."auth/login"]
+middlewares = ["cors"]
+
+[routes.config."users/get"]
+middlewares = ["cors", "authorize"]
+
+[routes.config."posts/get"]
+middlewares = ["cors", "authorize"]
+
+[routes.config.add]
+middlewares = []
