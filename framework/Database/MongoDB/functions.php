@@ -31,5 +31,14 @@ function db(string $dbName = null)
 
 function requireModel(string $collectionName)
 {
+    $parts = explode(".", $collectionName);
+
+    if (count($parts) > 1) {
+        $dbName = $parts[0];
+        $collectionName = $parts[1];
+
+        return db($dbName)->$collectionName;
+    }
+
     return db()->$collectionName;
 }
