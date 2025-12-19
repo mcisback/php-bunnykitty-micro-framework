@@ -31,7 +31,6 @@ A lightweight, JSON-RPC inspired PHP micro-framework built on top of Symfony Htt
 - 🗄️ **MongoDB Integration** – Built-in MongoDB client with helper functions
 - ⚙️ **TOML Configuration** – Simple, readable configuration files
 - 🎯 **File-based Routing** – Routes map directly to PHP files
-- 🔒 **Secure by Default** – Path traversal protection built-in
 
 ---
 
