@@ -1,6 +1,8 @@
 <?php
 namespace Marking\BunnyKitty\Database\MongoDB;
 
+use Marking\BunnyKitty\Database\MongoDB\CollectionWrapper;
+
 function mongo(?string $mongoUri = null)
 {
     static $client = null;
@@ -29,16 +31,28 @@ function db(string $dbName = null)
     return mongo()->$dbName;
 }
 
+// function normalizeCollection(iterable $cursor): array
+// {
+//     return array_map(function ($doc) {
+//         $doc["id"] = (string) $doc["_id"];
+//         unset($doc["_id"]);
+//         return $doc;
+//     }, iterator_to_array($cursor));
+// }
+
 function requireModel(string $collectionName)
 {
     $parts = explode(".", $collectionName);
+    $collection = null;
 
     if (count($parts) > 1) {
         $dbName = $parts[0];
         $collectionName = $parts[1];
 
-        return db($dbName)->$collectionName;
+        $collection = db($dbName)->$collectionName;
     }
 
-    return db()->$collectionName;
+    $collection = $collection ?? db()->$collectionName;
+
+    return new CollectionWrapper($collection);
 }

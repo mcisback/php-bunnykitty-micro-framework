@@ -1,3 +1,16 @@
+[app]
+required_envs = [
+    "MONGODB_URI",
+    "MONGODB_DBNAME",
+    "JWT_SECRET",
+    "JWT_ISSUER",
+    "JWT_AUDIENCE",
+]
+
+[cors]
+# allowed_origins = "http://localhost:3000,http://localhost:8888,https://www.myapp.com,https://myapp.com"
+allowed_origins = "http://localhost:3000"
+
 [routes.config."auth/login"]
 middlewares = ["cors"]
 

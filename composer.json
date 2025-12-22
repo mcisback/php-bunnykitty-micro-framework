@@ -1,5 +1,5 @@
 {
-  "name": "billyballo/backend",
+  "name": "marking/bunnykitty",
   "type": "project",
   "autoload": {
     "psr-4": {
@@ -25,6 +25,7 @@
     "yosymfony/toml": "^1.0",
     "league/config": "^1.2",
     "symfony/filesystem": "^7.4",
-    "mongodb/mongodb": "^2.1"
+    "mongodb/mongodb": "^2.1",
+    "firebase/php-jwt": "^7.0"
   }
 }

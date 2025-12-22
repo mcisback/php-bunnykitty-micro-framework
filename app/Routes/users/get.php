@@ -1,12 +1,6 @@
 <?php
 
 return function ($request, $response) {
-    // print_r($request);
-    // print_r([
-    //     "authToken" => $request->attributes->get("authToken"),
-    //     "authorized" => $request->attributes->get("authorized"),
-    // ]);
-
     return [
         [
             "id" => 1,

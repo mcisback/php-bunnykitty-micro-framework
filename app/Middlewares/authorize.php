@@ -5,9 +5,9 @@
 use Symfony\Component\HttpFoundation\Request;
 
 use function Marking\BunnyKitty\Helpers\response;
+use function Marking\BunnyKitty\Helpers\verifyJwt;
 
-// NOTE: add a STOP_REQUEST and CONTINUE_REQUEST enums instead of null ?
-// TODO: Add generic middleware ?
+// TODO: Use SameSite cookies to store token ?
 return function (Request $request, $response = null, $next = null): ?array {
     $authHeader = $request->headers->get("Authorization");
 
@@ -15,15 +15,9 @@ return function (Request $request, $response = null, $next = null): ?array {
         $authToken = substr($authHeader, 7);
     }
 
-    if ($authToken !== "my-custom-token") {
-        // echo "Authorized with token: $authToken";
+    $jwtDecoded = verifyJwt($authToken);
 
-        // exit();
-        //
-        response()->unauthorized("Missing or invalid token");
-    }
-
-    $request->attributes->set("authToken", $authToken);
+    $request->attributes->set("user", $jwtDecoded->user);
     $request->attributes->set("authorized", true);
 
     if ($next !== null) {

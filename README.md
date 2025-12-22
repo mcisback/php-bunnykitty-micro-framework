@@ -1,6 +1,6 @@
 # 🐰 BunnyKitty PHP Framework
 
-A lightweight, JSON-RPC inspired PHP micro-framework built on top of Symfony HttpFoundation with MongoDB support. BunnyKitty provides a simple yet powerful architecture for building API backends with middleware support, configuration management, and a clean separation between framework and application code.
+A lightweight, JSON-RPC inspired PHP micro-framework built on top of Symfony HttpFoundation with MongoDB and JWT authentication support. BunnyKitty provides a simple yet powerful architecture for building API backends with middleware support, configuration management, and a clean separation between framework and application code.
 
 ---
 
@@ -15,6 +15,7 @@ A lightweight, JSON-RPC inspired PHP micro-framework built on top of Symfony Htt
 - [Creating Middlewares](#creating-middlewares)
 - [Request & Response](#request--response)
 - [Database (MongoDB)](#database-mongodb)
+- [JWT Authentication](#jwt-authentication)
 - [Helper Functions](#helper-functions)
 - [API Format](#api-format)
 - [Examples](#examples)
@@ -28,7 +29,8 @@ A lightweight, JSON-RPC inspired PHP micro-framework built on top of Symfony Htt
 - 🚀 **Lightweight** – Minimal overhead, built on Symfony HttpFoundation
 - 📡 **JSON-RPC Inspired** – Custom protocol for structured API communication
 - 🔐 **Middleware Pipeline** – Configurable middleware chain per route
-- 🗄️ **MongoDB Integration** – Built-in MongoDB client with helper functions
+- 🗄️ **MongoDB Integration** – Built-in MongoDB client with CollectionWrapper
+- 🔑 **JWT Authentication** – Built-in JWT token creation and verification
 - ⚙️ **TOML Configuration** – Simple, readable configuration files
 - 🎯 **File-based Routing** – Routes map directly to PHP files
 
@@ -66,9 +68,14 @@ cp .env.example .env
 4. **Configure your `.env` file:**
 
 ```env
-# MongoDB Configuration (optional)
-MONGODB_URI=mongodb://root:supersecret@localhost:27017
+# MongoDB Configuration
+MONGODB_URI=mongodb://root:password@localhost:27017
 MONGODB_DBNAME=myapp
+
+# JWT Configuration
+JWT_SECRET=your-super-secret-key-here
+JWT_ISSUER=http://localhost:8888
+JWT_AUDIENCE=http://localhost:8888
 ```
 
 5. **Start MongoDB (if using database features):**
@@ -77,7 +84,7 @@ MONGODB_DBNAME=myapp
 # Using Docker
 docker run -d -p 27017:27017 --name mongodb \
   -e MONGO_INITDB_ROOT_USERNAME=root \
-  -e MONGO_INITDB_ROOT_PASSWORD=supersecret \
+  -e MONGO_INITDB_ROOT_PASSWORD=password \
   mongo
 ```
 
@@ -106,18 +113,19 @@ project-root/
 │   │   └── Manager.php         # Configuration singleton
 │   ├── Database/
 │   │   └── MongoDB/
-│   │       └── functions.php   # MongoDB helpers
+│   │       ├── functions.php   # MongoDB helpers
+│   │       └── CollectionWrapper.php
 │   ├── Handlers/
 │   │   └── functions.php       # Request dispatcher
 │   ├── Helpers/
-│   │   └── functions.php       # Utility functions
+│   │   └── functions.php       # Utility functions (config, response, JWT)
 │   ├── Http/
 │   │   ├── RequestWrapper.php
 │   │   └── ResponseWrapper.php
 │   └── Middlewares/
 │       └── functions.php       # Middleware factory
 │
-├── config.toml                 # Route configuration
+├── config.toml                 # App and route configuration
 ├── composer.json
 ├── index.php                   # Entry point
 └── .env                        # Environment variables
@@ -131,7 +139,7 @@ project-root/
 | `app/Routes/` | Route handlers – Each file is a callable endpoint |
 | `app/Middlewares/` | Custom middleware functions |
 | `framework/` | **Core framework** – HTTP handling, config, database, helpers |
-| `config.toml` | Route-to-middleware mapping |
+| `config.toml` | App settings, CORS, and route-to-middleware mapping |
 
 ---
 
@@ -141,31 +149,44 @@ project-root/
 
 ```env
 # MongoDB
-MONGODB_URI=mongodb://root:supersecret@localhost:27017
+MONGODB_URI=mongodb://root:password@localhost:27017
 MONGODB_DBNAME=myapp
 
-# Add your custom variables
-APP_SECRET=your-secret-key
+# JWT Authentication
+JWT_SECRET=your-super-secret-key-here
+JWT_ISSUER=http://localhost:8888
+JWT_AUDIENCE=http://localhost:8888
 ```
 
-### Route Configuration (`config.toml`)
+### App Configuration (`config.toml`)
 
-The `config.toml` file defines which middlewares run for each route:
+The `config.toml` file defines app settings, CORS configuration, and route middlewares:
 
 ```toml
-# Route: auth/login → runs 'cors' middleware
+# Required environment variables (validated on startup)
+[app]
+required_envs = [
+    "MONGODB_URI",
+    "MONGODB_DBNAME",
+    "JWT_SECRET",
+    "JWT_ISSUER",
+    "JWT_AUDIENCE",
+]
+
+# CORS Configuration
+[cors]
+allowed_origins = "http://localhost:3000"
+
+# Route Configuration
 [routes.config."auth/login"]
 middlewares = ["cors"]
 
-# Route: users/get → runs 'cors' then 'authorize' middleware
 [routes.config."users/get"]
 middlewares = ["cors", "authorize"]
 
-# Route: posts/get → runs 'cors' then 'authorize' middleware
 [routes.config."posts/get"]
 middlewares = ["cors", "authorize"]
 
-# Route: add → no middlewares
 [routes.config.add]
 middlewares = []
 ```
@@ -176,6 +197,7 @@ middlewares = []
 - Use quotes for routes with slashes: `"auth/login"`
 - Middlewares execute in the order listed
 - Empty array `[]` means no middlewares
+- Required environment variables are validated on startup
 
 ### Accessing Configuration in Code
 
@@ -184,6 +206,12 @@ use function Marking\BunnyKitty\Helpers\config;
 
 // Get a specific configuration value
 $middlewares = config("routes.config.users/get.middlewares");
+
+// Get CORS origins
+$origins = config("cors.allowed_origins");
+
+// Get required envs
+$requiredEnvs = config("app.required_envs");
 
 // Get the config manager instance
 $configManager = config();
@@ -208,46 +236,71 @@ return function ($request, $response, $a, $b) {
 ```
 
 **API Call:**
+
 ```json
 {
   "jsonrpc": "custom",
   "method": "add",
   "params": [5, 3],
-  "id": 1
+  "id": "unique-request-id"
 }
 ```
 
-### Nested Route
+### Nested Route with Database
 
 **File:** `app/Routes/auth/login.php`
 
 ```php
 <?php
 
-return function ($request, $response, $username, $password) {
-    if ($username === "admin" && $password === "password") {
-        return [
-            "token" => "my-custom-token",
-            "user_id" => 1,
-            "auth" => true,
-            "message" => "Login successful",
-        ];
+use function Marking\BunnyKitty\Database\MongoDB\requireModel;
+use function Marking\BunnyKitty\Helpers\response;
+use function Marking\BunnyKitty\Helpers\createJWT;
+
+return function ($request, $response, $usernameOrEmail, $password) {
+    $users = requireModel("users");
+
+    $user = $users->findOne([
+        "username" => $usernameOrEmail,
+    ]);
+
+    if (!$user) {
+        $user = $users->findOne([
+            "email" => $usernameOrEmail,
+        ]);
     }
 
+    if (!$user) {
+        response()->unauthorized("User not found");
+    }
+
+    if (!password_verify($password, $user->password)) {
+        response()->unauthorized("Invalid credentials");
+    }
+
+    unset($user["password"]);
+
+    $user["id"] = (string) $user->_id;
+    unset($user["_id"]);
+
+    $token = createJWT($user);
+
     return [
-        "message" => "Invalid credentials",
-        "auth" => false,
+        "token" => $token,
+        "user" => $user,
+        "message" => "Login successful",
     ];
 };
 ```
 
 **API Call:**
+
 ```json
 {
   "jsonrpc": "custom",
   "method": "auth/login",
-  "params": ["admin", "password"],
-  "id": 1
+  "params": ["admin", "password123"],
+  "id": "unique-request-id"
 }
 ```
 
@@ -255,9 +308,9 @@ return function ($request, $response, $username, $password) {
 
 ```php
 return function (
-    Request $request,           // Symfony HttpFoundation Request
-    ?JsonResponse $response,    // Response from middlewares (or null)
-    ...$params                  // Parameters from "params" array in request
+    Request $request,              // Symfony HttpFoundation Request
+    ResponseWrapper $response,     // ResponseWrapper from middlewares
+    ...$params                     // Parameters from "params" array in request
 ) {
     // Return an array or value
     return ["result" => "data"];
@@ -276,13 +329,13 @@ return function (Request $request, $response) {
     $authHeader = $request->headers->get("Authorization");
     
     // Access attributes set by middlewares
-    $userId = $request->attributes->get("userId");
+    $user = $request->attributes->get("user");
     $isAuthorized = $request->attributes->get("authorized");
     
     // Access query parameters (if any)
     $page = $request->query->get("page", 1);
     
-    return ["userId" => $userId];
+    return ["user" => $user];
 };
 ```
 
@@ -315,7 +368,7 @@ return function (
 };
 ```
 
-### Authorization Middleware Example
+### Authorization Middleware (JWT)
 
 **File:** `app/Middlewares/authorize.php`
 
@@ -323,7 +376,9 @@ return function (
 <?php
 
 use Symfony\Component\HttpFoundation\Request;
+
 use function Marking\BunnyKitty\Helpers\response;
+use function Marking\BunnyKitty\Helpers\verifyJwt;
 
 return function (Request $request, $response = null, $next = null): ?array {
     $authHeader = $request->headers->get("Authorization");
@@ -332,13 +387,11 @@ return function (Request $request, $response = null, $next = null): ?array {
         $authToken = substr($authHeader, 7);
     }
 
-    if ($authToken !== "my-custom-token") {
-        // This exits and returns an error response
-        response()->unauthorized("Missing or invalid token");
-    }
+    // Verify JWT token (throws on invalid/expired)
+    $jwtDecoded = verifyJwt($authToken);
 
-    // Attach data to request for use in handlers
-    $request->attributes->set("authToken", $authToken);
+    // Attach decoded user to request for use in handlers
+    $request->attributes->set("user", $jwtDecoded->user);
     $request->attributes->set("authorized", true);
 
     if ($next !== null) {
@@ -349,7 +402,7 @@ return function (Request $request, $response = null, $next = null): ?array {
 };
 ```
 
-### CORS Middleware Example
+### CORS Middleware
 
 **File:** `app/Middlewares/cors.php`
 
@@ -358,12 +411,13 @@ return function (Request $request, $response = null, $next = null): ?array {
 
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
+use function Marking\BunnyKitty\Helpers\config;
 
 return function (Request $request, $response = null, $next = null): ?array {
     $headers = [
-        "Access-Control-Allow-Origin" => "http://localhost:3000",
+        "Access-Control-Allow-Origin" => config("cors.allowed_origins"),
         "Access-Control-Allow-Methods" => "POST, OPTIONS",
-        "Access-Control-Allow-Headers" => "Content-Type, Authorization",
+        "Access-Control-Allow-Headers" => "*",
         "Access-Control-Allow-Credentials" => "true",
         "Access-Control-Max-Age" => "3600",
     ];
@@ -408,6 +462,15 @@ The `response()` helper returns a `ResponseWrapper` with these methods:
 ```php
 use function Marking\BunnyKitty\Helpers\response;
 
+// Set request ID (for matching responses to requests)
+response()->setId($requestId);
+
+// Set response data
+response()->setData(["key" => "value"]);
+
+// Set status code
+response()->setStatusCode(Response::HTTP_OK);
+
 // Success response (exits script)
 response()->successAndExit(["data" => "value"], "Custom message");
 
@@ -422,6 +485,19 @@ response()->unauthorized("Invalid token");
 
 // Send custom JSON (exits script)
 response()->sendJsonAndExit(["custom" => "data"], Response::HTTP_OK);
+
+// Send and exit (uses previously set data)
+response()->sendAndExit();
+```
+
+### Chaining Methods
+
+```php
+response()
+    ->setId($requestId)
+    ->setData(["users" => $users])
+    ->setStatusCode(Response::HTTP_OK)
+    ->sendAndExit();
 ```
 
 ### Success Response Format
@@ -429,6 +505,7 @@ response()->sendJsonAndExit(["custom" => "data"], Response::HTTP_OK);
 ```json
 {
   "jsonrpc": "custom",
+  "id": "unique-request-id",
   "success": true,
   "message": "Success",
   "result": [{ "your": "data" }]
@@ -440,6 +517,7 @@ response()->sendJsonAndExit(["custom" => "data"], Response::HTTP_OK);
 ```json
 {
   "jsonrpc": "custom",
+  "id": "unique-request-id",
   "success": false,
   "error": {
     "code": 400,
@@ -470,22 +548,59 @@ MONGODB_DBNAME=myapp
 use function Marking\BunnyKitty\Database\MongoDB\requireModel;
 
 return function ($request, $response) {
-    // Get a collection (model)
+    // Get a collection (returns CollectionWrapper)
     $posts = requireModel("posts");
     
-    // Find documents
-    $result = iterator_to_array(
-        $posts->find(
-            [],  // filter
-            [
-                "limit" => 100,
-                "sort" => ["createdAt" => -1],
-            ]
-        )
+    // Find documents with options
+    $result = $posts->find(
+        [],  // filter
+        [
+            "limit" => 100,
+            "sort" => ["createdAt" => -1],
+        ]
     );
     
-    return $result;
+    // Convert cursor to array (auto-converts _id to id)
+    return $result->toArray();
 };
+```
+
+### CollectionWrapper Methods
+
+The `requireModel()` function returns a `CollectionWrapper` with these methods:
+
+```php
+use function Marking\BunnyKitty\Database\MongoDB\requireModel;
+
+$users = requireModel("users");
+
+// Find multiple documents (returns CollectionWrapper for chaining)
+$users->find(["active" => true], ["limit" => 10]);
+
+// Convert find results to array (auto-normalizes _id to id)
+$users->find(["active" => true])->toArray();
+
+// Find single document
+$user = $users->findOne(["email" => $email]);
+
+// Insert document
+$result = $users->insertOne([
+    "name" => "John",
+    "email" => "john@example.com",
+    "password" => password_hash("secret", PASSWORD_DEFAULT),
+]);
+
+// Update document
+$result = $users->updateOne(
+    ["_id" => new MongoDB\BSON\ObjectId($id)],
+    ['$set' => ["name" => "Jane"]]
+);
+
+// Delete document
+$result = $users->deleteOne(["_id" => new MongoDB\BSON\ObjectId($id)]);
+
+// Access underlying MongoDB\Collection
+$collection = $users->getCollection();
 ```
 
 ### MongoDB Helper Functions
@@ -504,15 +619,75 @@ $database = db();
 // Get database with custom name
 $database = db("other_database");
 
-// Get collection directly
-$users = requireModel("users");
+// Get collection with database prefix
+$users = requireModel("mydb.users");  // Uses 'mydb' database
 
-// Common operations
-$users->insertOne(["name" => "John", "email" => "john@example.com"]);
-$users->find(["active" => true]);
-$users->findOne(["_id" => new MongoDB\BSON\ObjectId($id)]);
-$users->updateOne(["_id" => $id], ['$set' => ["name" => "Jane"]]);
-$users->deleteOne(["_id" => $id]);
+// Get collection from default database
+$posts = requireModel("posts");
+```
+
+---
+
+## JWT Authentication
+
+BunnyKitty includes built-in JWT support using Firebase PHP-JWT.
+
+### Configuration
+
+Add to your `.env`:
+
+```env
+JWT_SECRET=your-super-secret-key-at-least-32-chars
+JWT_ISSUER=http://localhost:8888
+JWT_AUDIENCE=http://localhost:8888
+```
+
+### Creating JWT Tokens
+
+```php
+use function Marking\BunnyKitty\Helpers\createJWT;
+
+// User object (must have an 'id' property)
+$user = (object) [
+    "id" => "user-123",
+    "username" => "john",
+    "email" => "john@example.com",
+    "role" => "admin",
+];
+
+// Create token (expires in 48 hours)
+$token = createJWT($user);
+
+return [
+    "token" => $token,
+    "user" => $user,
+];
+```
+
+### Verifying JWT Tokens
+
+```php
+use function Marking\BunnyKitty\Helpers\verifyJwt;
+
+// Returns decoded payload or exits with 401 on invalid/expired token
+$decoded = verifyJwt($token);
+
+// Access user data
+$user = $decoded->user;
+$userId = $decoded->sub;
+```
+
+### JWT Payload Structure
+
+```json
+{
+  "iss": "http://localhost:8888",
+  "aud": "http://localhost:8888",
+  "sub": "user-id",
+  "user": { "id": "...", "username": "...", "email": "..." },
+  "iat": 1703123456,
+  "exp": 1703296256
+}
 ```
 
 ---
@@ -525,6 +700,8 @@ Import helpers using the framework namespace:
 use function Marking\BunnyKitty\Helpers\config;
 use function Marking\BunnyKitty\Helpers\response;
 use function Marking\BunnyKitty\Helpers\pathFromRootDir;
+use function Marking\BunnyKitty\Helpers\createJWT;
+use function Marking\BunnyKitty\Helpers\verifyJwt;
 ```
 
 ### Available Helpers
@@ -535,12 +712,15 @@ use function Marking\BunnyKitty\Helpers\pathFromRootDir;
 | `config()` | Get the ConfigManager instance |
 | `response()` | Get ResponseWrapper for sending responses |
 | `pathFromRootDir(...$paths)` | Build absolute path from project root |
+| `createJWT($user)` | Create a JWT token for the user |
+| `verifyJwt($token)` | Verify and decode a JWT token |
 
 ### Examples
 
 ```php
 // Get config value
 $middlewares = config("routes.config.users/get.middlewares");
+$corsOrigins = config("cors.allowed_origins");
 
 // Build path
 $filePath = pathFromRootDir("app", "data", "file.json");
@@ -548,6 +728,10 @@ $filePath = pathFromRootDir("app", "data", "file.json");
 
 // Send response
 response()->successAndExit(["users" => $users]);
+
+// JWT operations
+$token = createJWT($userObject);
+$decoded = verifyJwt($token);
 ```
 
 ---
@@ -567,7 +751,7 @@ BunnyKitty uses a JSON-RPC inspired protocol. All requests must:
   "jsonrpc": "custom",
   "method": "route/path",
   "params": ["param1", "param2"],
-  "id": 1
+  "id": "unique-request-id"
 }
 ```
 
@@ -575,15 +759,17 @@ BunnyKitty uses a JSON-RPC inspired protocol. All requests must:
 |-------|------|----------|-------------|
 | `jsonrpc` | string | Yes | Must be `"custom"` |
 | `method` | string | Yes | Route path (maps to `app/Routes/{method}.php`) |
-| `params` | array | No | Parameters passed to handler function |
-| `id` | mixed | Yes | Request identifier (returned in response) |
+| `params` | array/object | No | Parameters passed to handler function |
+| `id` | string | Yes | Unique request identifier (returned in response) |
 
 ### Response Format
 
 **Success:**
+
 ```json
 {
   "jsonrpc": "custom",
+  "id": "unique-request-id",
   "success": true,
   "message": "Success",
   "result": [{ "data": "here" }]
@@ -591,9 +777,11 @@ BunnyKitty uses a JSON-RPC inspired protocol. All requests must:
 ```
 
 **Error:**
+
 ```json
 {
   "jsonrpc": "custom",
+  "id": "unique-request-id",
   "success": false,
   "error": {
     "code": 400,
@@ -606,74 +794,105 @@ BunnyKitty uses a JSON-RPC inspired protocol. All requests must:
 
 ## Examples
 
-### Complete Request/Response Flow
+### Complete Authentication Flow
 
-**1. Create a route:** `app/Routes/users/create.php`
+**1. Create a login route:** `app/Routes/auth/login.php`
 
 ```php
 <?php
 
 use function Marking\BunnyKitty\Database\MongoDB\requireModel;
 use function Marking\BunnyKitty\Helpers\response;
+use function Marking\BunnyKitty\Helpers\createJWT;
 
-return function ($request, $response, $name, $email) {
+return function ($request, $response, $usernameOrEmail, $password) {
     $users = requireModel("users");
+
+    $user = $users->findOne(["username" => $usernameOrEmail]);
     
-    // Check if user exists
-    $existing = $users->findOne(["email" => $email]);
-    if ($existing) {
-        response()->errorAndExit("User already exists", 409);
+    if (!$user) {
+        $user = $users->findOne(["email" => $usernameOrEmail]);
     }
-    
-    // Create user
-    $result = $users->insertOne([
-        "name" => $name,
-        "email" => $email,
-        "createdAt" => new MongoDB\BSON\UTCDateTime(),
-    ]);
-    
+
+    if (!$user) {
+        response()->unauthorized("User not found");
+    }
+
+    if (!password_verify($password, $user->password)) {
+        response()->unauthorized("Invalid credentials");
+    }
+
+    unset($user["password"]);
+    $user["id"] = (string) $user->_id;
+    unset($user["_id"]);
+
+    $token = createJWT($user);
+
     return [
-        "id" => (string) $result->getInsertedId(),
-        "name" => $name,
-        "email" => $email,
+        "token" => $token,
+        "user" => $user,
+        "message" => "Login successful",
     ];
 };
 ```
 
-**2. Configure middleware:** `config.toml`
+**2. Create a protected route:** `app/Routes/posts/get.php`
+
+```php
+<?php
+
+use function Marking\BunnyKitty\Database\MongoDB\requireModel;
+
+return function ($request, $response) {
+    $posts = requireModel("posts");
+
+    $result = $posts->find(
+        [],
+        [
+            "limit" => 100,
+            "sort" => ["createdAt" => -1],
+        ],
+    );
+
+    return $result->toArray();
+};
+```
+
+**3. Configure middlewares:** `config.toml`
 
 ```toml
-[routes.config."users/create"]
+[routes.config."auth/login"]
+middlewares = ["cors"]
+
+[routes.config."posts/get"]
 middlewares = ["cors", "authorize"]
 ```
 
-**3. Make API request:**
+**4. Login request:**
 
 ```bash
 curl -X POST http://localhost:8000 \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer my-custom-token" \
   -d '{
     "jsonrpc": "custom",
-    "method": "users/create",
-    "params": ["John Doe", "john@example.com"],
-    "id": 1
+    "method": "auth/login",
+    "params": ["admin", "password123"],
+    "id": "login-001"
   }'
 ```
 
-**4. Response:**
+**5. Protected request with token:**
 
-```json
-{
-  "jsonrpc": "custom",
-  "success": true,
-  "message": "Success",
-  "result": [{
-    "id": "507f1f77bcf86cd799439011",
-    "name": "John Doe",
-    "email": "john@example.com"
-  }]
-}
+```bash
+curl -X POST http://localhost:8000 \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <your-jwt-token>" \
+  -d '{
+    "jsonrpc": "custom",
+    "method": "posts/get",
+    "params": [],
+    "id": "posts-001"
+  }'
 ```
 
 ---
@@ -971,18 +1190,18 @@ RUN a2enmod rewrite
 # Simple add operation
 curl -X POST http://localhost:8000 \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"custom","method":"add","params":[5,3],"id":1}'
+  -d '{"jsonrpc":"custom","method":"add","params":[5,3],"id":"test-001"}'
 
 # Login
 curl -X POST http://localhost:8000 \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"custom","method":"auth/login","params":["admin","password"],"id":1}'
+  -d '{"jsonrpc":"custom","method":"auth/login","params":["admin","password123"],"id":"login-001"}'
 
-# Protected route with auth
+# Protected route with JWT token
 curl -X POST http://localhost:8000 \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer my-custom-token" \
-  -d '{"jsonrpc":"custom","method":"users/get","params":[],"id":1}'
+  -H "Authorization: Bearer <your-jwt-token>" \
+  -d '{"jsonrpc":"custom","method":"users/get","params":[],"id":"users-001"}'
 ```
 
 ---
@@ -993,34 +1212,55 @@ curl -X POST http://localhost:8000 \
 
 1. Create file: `app/Routes/my/route.php`
 2. Return a callable:
-   ```php
-   <?php
-   return function ($request, $response, ...$params) {
-       return ["result" => "data"];
-   };
-   ```
+
+```php
+<?php
+return function ($request, $response, ...$params) {
+    return ["result" => "data"];
+};
+```
+
 3. Add to `config.toml`:
-   ```toml
-   [routes.config."my/route"]
-   middlewares = []
-   ```
+
+```toml
+[routes.config."my/route"]
+middlewares = []
+```
 
 ### Creating a New Middleware
 
 1. Create file: `app/Middlewares/myMiddleware.php`
 2. Return a callable:
-   ```php
-   <?php
-   return function ($request, $response, $next) {
-       // Logic here
-       return [$request, $response];
-   };
-   ```
+
+```php
+<?php
+return function ($request, $response, $next) {
+    // Logic here
+    return [$request, $response];
+};
+```
+
 3. Add to routes in `config.toml`:
-   ```toml
-   [routes.config."my/route"]
-   middlewares = ["myMiddleware"]
-   ```
+
+```toml
+[routes.config."my/route"]
+middlewares = ["myMiddleware"]
+```
+
+---
+
+## Dependencies
+
+| Package | Version | Description |
+|---------|---------|-------------|
+| `symfony/http-foundation` | ^7.4 | HTTP request/response handling |
+| `symfony/string` | ^7.4 | String manipulation utilities |
+| `symfony/filesystem` | ^7.4 | Filesystem utilities |
+| `vlucas/phpdotenv` | ^5.6 | Environment variable loading |
+| `yosymfony/toml` | ^1.0 | TOML configuration parsing |
+| `league/config` | ^1.2 | Configuration management |
+| `mongodb/mongodb` | ^2.1 | MongoDB driver |
+| `firebase/php-jwt` | ^7.0 | JWT token handling |
 
 ---
 
@@ -1033,4 +1273,3 @@ MIT License
 ## Author
 
 Created by Mark Caggiano
-

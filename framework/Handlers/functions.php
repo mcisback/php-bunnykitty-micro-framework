@@ -14,13 +14,15 @@ use function Marking\BunnyKitty\Middlewares\createMiddleware;
 use function Symfony\Component\String\u;
 
 // NOTE: maybe better to throw errors instead of responses and catch them in index.php
-function dispatchRequest(Request $request, ParameterBag|array $data)
+function dispatchRequest(Request $request, ParameterBag|array $requestData)
 {
-    $data = is_array($data) ? new ParameterBag($data) : $data;
+    $requestData = is_array($requestData)
+        ? new ParameterBag($requestData)
+        : $requestData;
 
-    $handler = u($data->get("method"));
-    $params = $data->get("params") ?? [];
-    $id = $data->get("id");
+    $handler = u($requestData->get("method"));
+    $params = $requestData->get("params") ?? [];
+    $id = $requestData->get("id");
 
     if ($handler->containsAny("..")) {
         response()->errorAndExit(
@@ -105,6 +107,17 @@ function dispatchRequest(Request $request, ParameterBag|array $data)
             "Handler is not callable",
             Response::HTTP_INTERNAL_SERVER_ERROR,
         );
+    }
+
+    if ($middlewareResponse === null) {
+        $middlewareResponse = new ResponseWrapper();
+    }
+
+    if (
+        $middlewareResponse instanceof ResponseWrapper &&
+        $middlewareResponse->getId() === null
+    ) {
+        $middlewareResponse->setId($id);
     }
 
     $resultOrResponse = $handler($request, $middlewareResponse, ...$params);

@@ -10,28 +10,67 @@ use Symfony\Component\HttpFoundation\Response;
 class ResponseWrapper
 {
     protected JsonResponse $response;
+    protected ParameterBag|array $json = [];
+    protected int $status = Response::HTTP_OK;
+    protected ?string $id = null;
 
-    public function __construct(?Response $response)
+    public function __construct(?Response $response = null)
     {
         $this->response = $response ?? new JsonResponse();
     }
 
     public function create(
-        ParameterBag|array $json,
+        ParameterBag|array $data,
         int $status = Response::HTTP_OK,
     ): JsonResponse {
-        $data = is_array($json) ? $json : $json->all();
-        $id = $data["id"] ?? null;
+        $this->setData([
+            "jsonrpc" => "custom",
+            ...$data,
+        ])->setStatusCode($status);
 
+        return $this->response;
+    }
+
+    public function setId(string $id): ResponseWrapper
+    {
+        $this->id = $id;
+
+        return $this;
+    }
+
+    public function setData(ParameterBag|array $data): ResponseWrapper
+    {
+        $data = is_array($data) ? $data : $data->all();
         unset($data["id"]);
 
         $this->response->setData([
             "jsonrpc" => "custom",
+            "id" => $this->id,
             ...$data,
         ]);
+
+        $this->json = $data;
+
+        return $this;
+    }
+
+    public function setStatusCode(int $status): ResponseWrapper
+    {
+        $this->status = $status;
         $this->response->setStatusCode($status);
 
-        return $this->response;
+        return $this;
+    }
+
+    public function getId(): ?string
+    {
+        return $this->id;
+    }
+
+    public function sendAndExit()
+    {
+        $this->response->send();
+        exit();
     }
 
     public function sendJsonAndExit(
